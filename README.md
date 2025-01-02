@@ -1,6 +1,4 @@
-<div align="center">
 # 📝 SmartNote CLI 📝 
-</div>
 
 SmartNote is a CLI-first note-taking app with a touch of AI magic. 
 I started this with the question if it would be easier to create full and complex AI apps if you started with CLI tools.  
