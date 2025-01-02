@@ -143,7 +143,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 If you find this project helpful, please ⭐ it on GitHub!
 
-![Star Tracker](https://img.shields.io/github/stars/mmirman/SmartNote?style=social)
+[![Star History Chart](https://api.star-history.com/svg?repos=mmirman/SmartNote&type=Date)](https://star-history.com/#mmirman/SmartNote)
 
 ---
 
