@@ -12,12 +12,40 @@ import math
 
 init(autoreset=True)
 
-with open("./.apikey","r") as f:
-    openai.api_key = f.read().strip()
+# Constants for API key handling
+CONFIG_DIR = Path.home() / ".config" / "ai_notes"
+API_KEY_FILE = CONFIG_DIR / ".apikey"
 
-if not openai.api_key:
-    print("Please set the OPENAI_API_KEY environment variable (export OPENAI_API_KEY='sk-...').")
-    sys.exit(1)
+###########################
+# OpenAI API Key Handling
+###########################
+
+def get_api_key():
+    """Fetch the OpenAI API key from the configuration file."""
+    if API_KEY_FILE.exists():
+        with open(API_KEY_FILE, "r") as file:
+            return file.read().strip()
+    else:
+        return None
+
+def set_api_key():
+    """Prompt the user to enter their OpenAI API key and save it to the configuration file."""
+    print(Fore.YELLOW + "It seems you don't have an OpenAI API key configured.")
+    print("You can get an API key from: " + Fore.CYAN + "https://platform.openai.com/signup")
+    api_key = input(Fore.GREEN + "Please enter your OpenAI API key: ").strip()
+    
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(API_KEY_FILE, "w") as file:
+        file.write(api_key)
+    print(Fore.GREEN + f"API key saved to {API_KEY_FILE}")
+    return api_key
+
+def initialize_openai_api():
+    openai.api_key = get_api_key()
+    if not openai.api_key:
+        openai.api_key = set_api_key()
+
+initialize_openai_api()
 
 DB_FILE = Path.home() / ".ai_notes_real.db"
 
