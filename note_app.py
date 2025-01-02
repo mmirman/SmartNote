@@ -312,28 +312,217 @@ def visualize_related_notes(rel_map):
             print(f"{nid} --> {rid}")
     print()
 
+
+def remove_note_by_id(note_id):
+    conn = get_db()
+    c = conn.cursor()
+    # Remove from notes
+    c.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+    # Remove from related_notes
+    c.execute("DELETE FROM related_notes WHERE note_id = ? OR related_note_id = ?", (note_id, note_id))
+    conn.commit()
+    conn.close()
+
+def update_note(note_id, updated_data):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE notes
+        SET text = ?, title = ?, tags = ?, sentiment = ?, highlight = ?, background = ?, timestamp = ?, embedding = ?
+        WHERE id = ?
+    """, (
+        updated_data["text"], updated_data["title"], ",".join(updated_data["tags"]), updated_data["sentiment"],
+        updated_data["highlight"], updated_data["background"], updated_data["timestamp"], updated_data["embedding"],
+        note_id
+    ))
+    conn.commit()
+    conn.close()
+
+def get_note_by_id(note_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, text, title, tags, sentiment, highlight, background, timestamp, embedding FROM notes WHERE id = ?", (note_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0],
+        "text": row[1],
+        "title": row[2],
+        "tags": row[3].split(",") if row[3] else [],
+        "sentiment": row[4],
+        "highlight": row[5],
+        "background": row[6],
+        "timestamp": row[7],
+        "embedding": row[8]
+    }
+
+#########################
+# Semantic Search Feature
+#########################
+
+def semantic_search(query, all_notes):
+    query_embedding = get_embeddings(query)
+    results = []
+    for note in all_notes:
+        if not note["embedding"]:
+            continue
+        note_vec = blob_to_vector(note["embedding"])
+        score = cosine_similarity(query_embedding, note_vec)
+        results.append((note, score))
+    results = sorted(results, key=lambda x: x[1], reverse=True)
+    return [note for note, score in results if score > 0.7]  # Arbitrary threshold
+
+#########################
+# Newsfeed Feature
+#########################
+
+def notes_by_date(target_date):
+    target_date = target_date.isoformat()[:10]
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, text, title, tags, sentiment, highlight, background, timestamp, embedding FROM notes WHERE timestamp LIKE ?", (f"{target_date}%",))
+    rows = c.fetchall()
+    conn.close()
+    notes = []
+    for r in rows:
+        notes.append({
+            "id": r[0],
+            "text": r[1],
+            "title": r[2],
+            "tags": r[3].split(",") if r[3] else [],
+            "sentiment": r[4],
+            "highlight": r[5],
+            "background": r[6],
+            "timestamp": r[7],
+            "embedding": r[8]
+        })
+    return notes
+
 #####################
-# Main CLI
+# CLI Enhancements
 #####################
 
 def main():
     parser = argparse.ArgumentParser(description="AI-First Note-Taking App")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
+    # Initialization
     init_parser = subparsers.add_parser("init_db", help="Initialize the database")
 
+    # Add Note
     add_parser = subparsers.add_parser("add", help="Add a new note")
     add_parser.add_argument("text", nargs="*", help="The note text")
     add_parser.add_argument("--voice", help="Path to an audio file to transcribe")
 
+    # View Notes
     list_parser = subparsers.add_parser("list", help="List all notes")
     list_parser.add_argument("--fancy", action="store_true", help="Fancy display")
     list_parser.add_argument("--context", help="Context for a situational summary")
 
+    # New Commands
     subparsers.add_parser("summarize", help="Summarize all notes")
     subparsers.add_parser("lattice", help="Show conceptual lattice")
 
+    # Feature: Read a note
+    read_parser = subparsers.add_parser("read", help="Read a specific note by ID")
+    read_parser.add_argument("id", type=int, help="The ID of the note to read")
+
+    # Feature: Semantic search
+    search_parser = subparsers.add_parser("search", help="Search notes by semantic similarity")
+    search_parser.add_argument("query", help="The query for semantic search")
+
+    # Feature: Remove note
+    remove_parser = subparsers.add_parser("remove", help="Remove a note by ID")
+    remove_parser.add_argument("id", type=int, help="The ID of the note to remove")
+
+    # Feature: Edit note
+    edit_parser = subparsers.add_parser("edit", help="Edit a note by ID")
+    edit_parser.add_argument("id", type=int, help="The ID of the note to edit")
+    edit_parser.add_argument("text", nargs="*", help="The new text for the note")
+
+    # Feature: Newsfeed
+    newsfeed_parser = subparsers.add_parser("newsfeed", help="View notes for a specific date")
+    newsfeed_parser.add_argument("date", help="The date in YYYY-MM-DD format (e.g., 2025-01-02)")
+
     args = parser.parse_args()
+
+    if args.command == "init_db":
+        init_db()
+        print("Database initialized.")
+        return
+
+    if args.command == "read":
+        note = get_note_by_id(args.id)
+        if note:
+            related_map = get_related_notes_map()
+            related_ids = related_map.get(note["id"], [])
+            display_note(note, related_ids, fancy=True)
+        else:
+            print(Fore.RED + f"No note found with ID {args.id}.")
+        return
+
+    if args.command == "search":
+        notes = get_all_notes()
+        results = semantic_search(args.query, notes)
+        if results:
+            print(Fore.GREEN + f"Results for '{args.query}':")
+            display_notes(results, fancy=True)
+        else:
+            print(Fore.YELLOW + f"No relevant notes found for query: {args.query}")
+        return
+
+    if args.command == "remove":
+        remove_note_by_id(args.id)
+        print(Fore.GREEN + f"Note #{args.id} removed.")
+        return
+
+    if args.command == "edit":
+        note = get_note_by_id(args.id)
+        if not note:
+            print(Fore.RED + f"No note found with ID {args.id}.")
+            return
+
+        new_text = " ".join(args.text).strip()
+        if not new_text:
+            print(Fore.YELLOW + "No new text provided. Exiting.")
+            return
+
+        # Recompute metadata
+        title, tags = analyze_note_for_title_and_tags(new_text)
+        sentiment = mood_modeling(new_text)
+        highlight = highlight_key_points(new_text)
+        background = ambient_knowledge_integration(new_text)
+        embedding = vector_to_blob(get_embeddings(new_text))
+
+        updated_data = {
+            "text": new_text,
+            "title": title,
+            "tags": tags,
+            "sentiment": sentiment,
+            "highlight": highlight,
+            "background": background,
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "embedding": embedding
+        }
+
+        update_note(args.id, updated_data)
+        print(Fore.GREEN + f"Note #{args.id} updated.")
+        return
+
+    if args.command == "newsfeed":
+        try:
+            target_date = datetime.datetime.strptime(args.date, "%Y-%m-%d")
+            notes = notes_by_date(target_date)
+            if notes:
+                print(Fore.CYAN + f"Notes for {args.date}:")
+                display_notes(notes, fancy=True)
+            else:
+                print(Fore.YELLOW + f"No notes found for {args.date}.")
+        except ValueError:
+            print(Fore.RED + "Invalid date format. Use YYYY-MM-DD.")
+        return
 
     if args.command == "init_db":
         init_db()
